@@ -2,9 +2,11 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import pandas as pd
-import plotly.graph_objs as go
+import plotly.express as px
 
+from sklearn.decomposition import PCA
 from data_loader import preprocess_data
+import plotly.graph_objs as go
 
 # Styles
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -18,12 +20,19 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 
 def prep_data_viz():
-    all_topics, document_topics = preprocess_data(db=True)
-    # All topics part
+    all_topics, document_topics = preprocess_data(db=False)
+    document_topics = pd.DataFrame(document_topics).transpose()
     all_topics = pd.DataFrame.from_dict(all_topics)
     n_topics = len(all_topics.columns)
     topics_flat = get_flat_topic_df(all_topics, n_topics)
-    return topics_flat, None
+    return topics_flat, document_topics
+
+
+def convertTupleStr(tup):
+    return '<br>'.join(map(str, tup))
+
+
+print(convertTupleStr((1, 2, 3, 4)))
 
 
 def get_flat_topic_df(all_topics, n_topics):
@@ -58,50 +67,182 @@ def get_flat_topic_df(all_topics, n_topics):
     return topics_flat
 
 
-# Define working data
 flat_data, document_topics = prep_data_viz()
-# print("upd")
+iw = flat_data.index.get_level_values("Word").values.tolist()
+it = flat_data.index.get_level_values("TopicID").values.tolist()
+pca_ = PCA(n_components=len(set(it)))
+document_projections = pd.DataFrame(pca_.fit_transform(document_topics), index=document_topics.index.copy())
 
-print(f"Rows {flat_data['weight'].shape}")
+kelly_colors = [(255, 179, 0),
+                (128, 62, 117),
+                (255, 104, 0),
+                (166, 189, 215),
+                (193, 0, 32),
+                (206, 162, 98),
+                (129, 112, 102),
+                (0, 125, 52),
+                (246, 118, 142),
+                (0, 83, 138),
+                (255, 122, 92),
+                (83, 55, 122),
+                (255, 142, 0),
+                (179, 40, 81),
+                (244, 200, 0),
+                (127, 24, 13),
+                (147, 170, 0),
+                (89, 51, 21),
+                (241, 58, 19),
+                (35, 44, 22)
+                ]
+
+topic_selector = dcc.Dropdown(
+    id='topic_selector',
+    options=[{'label': f'Topic {x}', 'value': x} for x in set(it)],
+    value=[x for x in set(it)],
+    multi=True
+)
+
+projection_selector1 = dcc.Dropdown(
+    id='projection_selector1',
+    options=[{'label': f'Topic {x}', 'value': x} for x in set(it)],
+    value=0,
+    multi=False,
+    clearable=False
+)
+
+projection_selector2 = dcc.Dropdown(
+    id='projection_selector2',
+    options=[{'label': f'Topic {x}', 'value': x} for x in set(it)],
+    value=1,
+    multi=False,
+    clearable=False
+)
+
+selector_div = html.Div(
+    children=[html.Label(["Topic 1 Projection Axis x", projection_selector1]),
+              html.Label(["Topic 2 Projection Axis y", projection_selector2])],
+    style={
+        "width": "100%",
+    }
+)
+
+
+@app.callback(
+    dash.dependencies.Output('right_div_1', 'children'),
+    [dash.dependencies.Input('projection_selector1', 'value'),
+     dash.dependencies.Input('projection_selector2', 'value')])
+
+def produce_scatter_projection(axis1, axis2):
+    f = {
+        'data': [
+            {
+                'x': document_projections.iloc[:, axis1].values,
+                'y': document_projections.iloc[:, axis2].values,
+                'text': [f'Document ID : {x}' for x in document_topics.index.values],
+                'mode': 'markers',
+                'marker': {'size': 5}
+            }
+        ],
+        'layout': {
+            'clickmode': 'event+select',
+            'closest' : "closest",
+            "height": "750",
+            "width@": "100%",
+            'title': f"Projection on topics {1}, {2}",
+        }
+    }
+    f = go.FigureWidget(px.scatter_3d(document_projections, x = 1, y = 2, z = 3, hover_name = 'company_nm'))
+
+    f.layout.clickmode = 'event+select'
+    f.data[0].on_click(update_point) # if click, then update point/df.
+    return  f
+
+
+#
+
+# barchart
 All_topics = dcc.Graph(
     id='topic_model-graph',
-    figure={
-        'data': [go.Bar(x=flat_data["weight"].values.tolist(),
-                        y=flat_data.index.get_level_values("Word").values.tolist(),
+)
+
+# Scatterplot
+document_projection_plot = dcc.Graph(
+    id='topic_projection',
+)
+
+def update_point(trace, points, selector):
+    print("test")
+
+
+@app.callback(
+    dash.dependencies.Output('topic_model-graph', 'figure'),
+    [dash.dependencies.Input('topic_selector', 'value')])
+def update_topics(value):
+    fl = flat_data.copy().iloc[flat_data.index.get_level_values("TopicID").isin(value), :]
+    iw_ = fl.index.get_level_values("TopicID")
+    it_ = fl.index.get_level_values("Word").values.tolist()
+
+    return {
+        'data': [go.Bar(x=fl["weight"].values.tolist(),
+                        y=[f"{it_[i]} : {iw_[i]}" for i in range(len(iw_))],
+                        marker_color=["rgb" + str(kelly_colors[x]) for ix, x in enumerate(iw_)],
+                        hovertext=[f"Topic Id {x}" for x in it_],
                         orientation='h')],
         'layout': {
-            'title': 'Dash Data Visualization',
-            "height": "500"
-        }
+            'title': 'Topic Distribution Visualisation',
+            "height": str((max(len(value * 5) * 25, 600))),
+            "width@": "100%"
+        }}
+
+
+title_bar = html.Div(
+    children=[html.H1(children='LDA Topic Models by TK', style={
+        'textAlign': 'center',
+        'color': "white",
+        'width': "100%",
+        'font-weight': 'bolder'
+    })
+              ],
+    style={
+        "width": "100%",
+        "backgroundColor": "#2ba287",
+        "height": "130px",
+        "padding-top": "30px"
     }
 )
 
 left_div = html.Div(
-    dcc.Graph(id='value-index'),
+    children=[
+        html.H4(children="Topics Selection:",
+                style={"textAlign": "left", 'color': colors['text'], "font-weight": "bold"}),
+        topic_selector,
+        All_topics],
     className='col s12 m6',
-    style={"width": "50%", "float": "left"}
+    style={"width": "49%", "float": "left", "overflow": "auto", "border": "1px dotted green"}
 )
+
 right_div = html.Div(
-    All_topics,
+    id="right_div_1",
+    children=[html.H4(children="Documents Projection:",
+                      style={"textAlign": "left", 'color': colors['text'],
+                             "font-weight": "bold"}), selector_div, document_projection_plot
+              ],
     className='col s12 m6',
-    style={"width": "50%", "float": "right", "height": "800px"}
+    style={"width": "49%", "float": "right", "border": "1px green dotted"}
 )
 
 app.layout = html.Div(children=[
-    html.H1(children='LDA Topic Models by TK', style={
-        'textAlign': 'center',
-        'color': colors['text'],
-        'width': "100%"
-    }),
+    title_bar,
 
     html.Div(children='''
-        Dash: A web application framework for Python.
+        Visualisation of LDA results.
     '''),
 
     # Start the left right mode
     html.Div(className='row',
-             style={"width": "100%", 'display': 'flex', 'align-items': 'center', 'justify-content': 'center',
-                    "margin": "auto"},
+             style={"width": "100%", 'display': 'inline-block',
+                    "margin": "auto", "overflow": "auto",
+                    "backgroundColor": colors["background"], "padding": "0"},
              children=[left_div, right_div])
 ],
     style={'backgroundColor': colors['background'], "height": "800px"}
