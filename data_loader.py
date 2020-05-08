@@ -1,6 +1,8 @@
 import json
 
+import pandas as pd
 from cassandra.cluster import Cluster
+from sklearn.decomposition import PCA
 
 
 def get_json_data():
@@ -73,6 +75,82 @@ def get_db_data():
     for result_row_ in rows:
         result_row = result_row_  # only one, load it and forget
     return json.loads(result_row[2]), json.loads(result_row[1])
+
+
+def prep_data_viz():
+    all_topics, document_topics = preprocess_data(db=False)
+    document_topics = pd.DataFrame(document_topics).transpose()
+    all_topics = pd.DataFrame.from_dict(all_topics)
+    n_topics = len(all_topics.columns)
+    topics_flat = get_flat_topic_df(all_topics, n_topics)
+    return topics_flat, document_topics
+
+
+def convertTupleStr(tup):
+    return '<br>'.join(map(str, tup))
+
+
+def get_flat_topic_df(all_topics, n_topics):
+    """
+    Get df with Multiindex to plot easier
+    :param all_topics: the IDs of the topics as list
+    :param n_topics: the number of topics in the model
+    :return: df with index [TopicID, Word] and weight
+    """
+    init_topic = all_topics.columns[0]
+    # TODO refator due duplication.
+    topics_flat = all_topics[[init_topic]].copy().dropna(axis=0)
+    topics_flat.index.rename("Word", inplace=True)
+    topics_flat.columns = ["weight"]
+    topics_flat["TopicID"] = init_topic
+    topics_flat.set_index("TopicID", inplace=True, append=True)  # ADD the index
+    topics_flat = topics_flat.reorder_levels(["TopicID", "Word"])
+    for init_topic in all_topics.columns[1:]:
+        tf = all_topics[[init_topic]].copy().dropna(axis=0)
+        tf.index.rename("Word", inplace=True)
+        tf.columns = ["weight"]
+        tf["TopicID"] = init_topic
+        tf.set_index("TopicID", inplace=True, append=True)  # ADD the index
+        tf = tf.reorder_levels(["TopicID", "Word"])
+        topics_flat = pd.concat([topics_flat, tf], axis=0)
+    topics_flat = pd.concat(
+        [topics_flat.
+             iloc[topics_flat.index.get_level_values("TopicID") == x, :]
+             .copy().sort_values(by="weight", ascending=False) for x in range(n_topics)],
+        axis=0)
+
+    return topics_flat
+
+
+def postprocess_data():
+    flat_data, document_topics = prep_data_viz()
+    iw = flat_data.index.get_level_values("Word").values.tolist()
+    it = flat_data.index.get_level_values("TopicID").values.tolist()
+    pca_ = PCA(n_components=len(set(it)))
+    document_projections = pd.DataFrame(pca_.fit_transform(document_topics), index=document_topics.index.copy())
+
+    kelly_colors = [(255, 179, 0),
+                    (128, 62, 117),
+                    (255, 104, 0),
+                    (166, 189, 215),
+                    (193, 0, 32),
+                    (206, 162, 98),
+                    (129, 112, 102),
+                    (0, 125, 52),
+                    (246, 118, 142),
+                    (0, 83, 138),
+                    (255, 122, 92),
+                    (83, 55, 122),
+                    (255, 142, 0),
+                    (179, 40, 81),
+                    (244, 200, 0),
+                    (127, 24, 13),
+                    (147, 170, 0),
+                    (89, 51, 21),
+                    (241, 58, 19),
+                    (35, 44, 22)
+                    ]
+    return kelly_colors, document_projections, it, iw, flat_data, document_topics
 
 
 if __name__ == "__main__":

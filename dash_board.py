@@ -1,100 +1,22 @@
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-import pandas as pd
-import plotly.express as px
-
-from sklearn.decomposition import PCA
-from data_loader import preprocess_data
 import plotly.graph_objs as go
 
-# Styles
+from data_loader import postprocess_data
+
+# Start styles #####################################################################
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 colors = {
     'background': '#ffffff',
     'text': '#4f5250'
 }
+####################################################################################
 
-# End styles #####################################################################
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+kelly_colors, document_projections, it, iw, flat_data, document_topics = postprocess_data()
 
-
-def prep_data_viz():
-    all_topics, document_topics = preprocess_data(db=False)
-    document_topics = pd.DataFrame(document_topics).transpose()
-    all_topics = pd.DataFrame.from_dict(all_topics)
-    n_topics = len(all_topics.columns)
-    topics_flat = get_flat_topic_df(all_topics, n_topics)
-    return topics_flat, document_topics
-
-
-def convertTupleStr(tup):
-    return '<br>'.join(map(str, tup))
-
-
-print(convertTupleStr((1, 2, 3, 4)))
-
-
-def get_flat_topic_df(all_topics, n_topics):
-    """
-    Get df with Multiindex to plot easier
-    :param all_topics: the IDs of the topics as list
-    :param n_topics: the number of topics in the model
-    :return: df with index [TopicID, Word] and weight
-    """
-    init_topic = all_topics.columns[0]
-    # TODO refator due duplication.
-    topics_flat = all_topics[[init_topic]].copy().dropna(axis=0)
-    topics_flat.index.rename("Word", inplace=True)
-    topics_flat.columns = ["weight"]
-    topics_flat["TopicID"] = init_topic
-    topics_flat.set_index("TopicID", inplace=True, append=True)  # ADD the index
-    topics_flat = topics_flat.reorder_levels(["TopicID", "Word"])
-    for init_topic in all_topics.columns[1:]:
-        tf = all_topics[[init_topic]].copy().dropna(axis=0)
-        tf.index.rename("Word", inplace=True)
-        tf.columns = ["weight"]
-        tf["TopicID"] = init_topic
-        tf.set_index("TopicID", inplace=True, append=True)  # ADD the index
-        tf = tf.reorder_levels(["TopicID", "Word"])
-        topics_flat = pd.concat([topics_flat, tf], axis=0)
-    topics_flat = pd.concat(
-        [topics_flat.
-             iloc[topics_flat.index.get_level_values("TopicID") == x, :]
-             .copy().sort_values(by="weight", ascending=False) for x in range(n_topics)],
-        axis=0)
-
-    return topics_flat
-
-
-flat_data, document_topics = prep_data_viz()
-iw = flat_data.index.get_level_values("Word").values.tolist()
-it = flat_data.index.get_level_values("TopicID").values.tolist()
-pca_ = PCA(n_components=len(set(it)))
-document_projections = pd.DataFrame(pca_.fit_transform(document_topics), index=document_topics.index.copy())
-
-kelly_colors = [(255, 179, 0),
-                (128, 62, 117),
-                (255, 104, 0),
-                (166, 189, 215),
-                (193, 0, 32),
-                (206, 162, 98),
-                (129, 112, 102),
-                (0, 125, 52),
-                (246, 118, 142),
-                (0, 83, 138),
-                (255, 122, 92),
-                (83, 55, 122),
-                (255, 142, 0),
-                (179, 40, 81),
-                (244, 200, 0),
-                (127, 24, 13),
-                (147, 170, 0),
-                (89, 51, 21),
-                (241, 58, 19),
-                (35, 44, 22)
-                ]
-
+# Controll elements
 topic_selector = dcc.Dropdown(
     id='topic_selector',
     options=[{'label': f'Topic {x}', 'value': x} for x in set(it)],
@@ -127,11 +49,15 @@ selector_div = html.Div(
 )
 
 
+# End Control elements
+
+
+### Define callbacks to bind elements to controller ###################################################
+
 @app.callback(
-    dash.dependencies.Output('right_div_1', 'children'),
+    dash.dependencies.Output('topic_projection', 'figure'),
     [dash.dependencies.Input('projection_selector1', 'value'),
      dash.dependencies.Input('projection_selector2', 'value')])
-
 def produce_scatter_projection(axis1, axis2):
     f = {
         'data': [
@@ -145,33 +71,13 @@ def produce_scatter_projection(axis1, axis2):
         ],
         'layout': {
             'clickmode': 'event+select',
-            'closest' : "closest",
+            'closest': "closest",
             "height": "750",
             "width@": "100%",
             'title': f"Projection on topics {1}, {2}",
         }
     }
-    f = go.FigureWidget(px.scatter_3d(document_projections, x = 1, y = 2, z = 3, hover_name = 'company_nm'))
-
-    f.layout.clickmode = 'event+select'
-    f.data[0].on_click(update_point) # if click, then update point/df.
-    return  f
-
-
-#
-
-# barchart
-All_topics = dcc.Graph(
-    id='topic_model-graph',
-)
-
-# Scatterplot
-document_projection_plot = dcc.Graph(
-    id='topic_projection',
-)
-
-def update_point(trace, points, selector):
-    print("test")
+    return f
 
 
 @app.callback(
@@ -193,6 +99,43 @@ def update_topics(value):
             "height": str((max(len(value * 5) * 25, 600))),
             "width@": "100%"
         }}
+
+
+# Write Documents
+@app.callback(
+    dash.dependencies.Output('document_contents', 'children'),
+    [dash.dependencies.Input('topic_projection', 'clickData')])
+def display_click_data(clickData):
+    print(clickData)
+    if clickData is None:
+        return "Please select a point first"
+    _document_db_id = clickData["points"][0]["text"][len("Document ID : "):]
+    _document_db_id = int(_document_db_id)
+    # Get Document and the topics
+    # Topics distr
+    _pd_index = clickData["points"][0]["pointIndex"]
+    _dt_pd_distr = document_topics.iloc[_pd_index, :].values
+    _dt_pd_distr = [[f"Topic {ix} : Weight {x} ", html.Br()] for ix, x in enumerate(_dt_pd_distr)]
+    _dt_pd_distr = [y for x in _dt_pd_distr for y in x]
+    return [html.Div(_dt_pd_distr), html.Br(), html.Br(), html.Br(), html.H3("The full document content"),
+            html.Span(_document_db_id)]
+
+
+#### End of Callbacks ###############################################################################
+
+# barchart
+All_topics = dcc.Graph(
+    id='topic_model-graph',
+)
+
+# Scatterplot
+document_projection_plot = dcc.Graph(
+    id='topic_projection',
+)
+
+
+def update_point(trace, points, selector):
+    print("test")
 
 
 title_bar = html.Div(
@@ -221,12 +164,22 @@ left_div = html.Div(
     style={"width": "49%", "float": "left", "overflow": "auto", "border": "1px dotted green"}
 )
 
+right_div_plot = html.Div(
+    id="right_div_1_plot",
+    children=[document_projection_plot])
+right_div_print = html.Div(
+    id="right_div_1_print",
+    children=[html.H3("Document topics:"), html.Div(id="document_contents", children="Please select Document First")])
+
 right_div = html.Div(
     id="right_div_1",
     children=[html.H4(children="Documents Projection:",
                       style={"textAlign": "left", 'color': colors['text'],
-                             "font-weight": "bold"}), selector_div, document_projection_plot
-              ],
+                             "font-weight": "bold"}),
+              selector_div,
+              right_div_plot,
+              right_div_print]
+    ,
     className='col s12 m6',
     style={"width": "49%", "float": "right", "border": "1px green dotted"}
 )
