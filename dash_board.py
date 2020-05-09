@@ -14,7 +14,7 @@ colors = {
 }
 ####################################################################################
 
-kelly_colors, document_projections, it, iw, flat_data, document_topics = postprocess_data()
+kelly_colors, document_projections, it, iw, flat_data, document_topics, topics_vis = postprocess_data()
 
 # Controll elements
 topic_selector = dcc.Dropdown(
@@ -116,6 +116,7 @@ def display_click_data(clickData):
     _pd_index = clickData["points"][0]["pointIndex"]
     _dt_pd_distr = document_topics.iloc[_pd_index, :].values
     _dt_pd_distr = [[f"Topic {ix} : Weight {x} ", html.Br()] for ix, x in enumerate(_dt_pd_distr)]
+
     _dt_pd_distr = [y for x in _dt_pd_distr for y in x]
     return [html.Div(_dt_pd_distr), html.Br(), html.Br(), html.Br(), html.H3("The full document content"),
             html.Span(_document_db_id)]
@@ -196,7 +197,12 @@ app.layout = html.Div(children=[
              style={"width": "100%", 'display': 'inline-block',
                     "margin": "auto", "overflow": "auto",
                     "backgroundColor": colors["background"], "padding": "0"},
-             children=[left_div, right_div])
+             children=[left_div, right_div]),
+    html.Div(className='row',
+             style={"width": "100%", 'display': 'inline-block',
+                    "margin": "auto", "overflow": "auto",
+                    "backgroundColor": colors["background"], "padding": "0"},
+             children=["Bugabuga"])
 ],
     style={'backgroundColor': colors['background'], "height": "800px"}
 )

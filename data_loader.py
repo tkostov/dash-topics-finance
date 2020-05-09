@@ -129,6 +129,15 @@ def postprocess_data():
     pca_ = PCA(n_components=len(set(it)))
     document_projections = pd.DataFrame(pca_.fit_transform(document_topics), index=document_topics.index.copy())
 
+    topic_vis = document_topics.transpose()
+    topic_vis = PCA(2).fit_transform(topic_vis)
+    topic_vis = pd.DataFrame(topic_vis, columns=["pc1", "pc2"])
+
+    topics_words = flat_data.unstack()
+    topics_words.columns = [x[1:] for x in topics_words.columns]
+    salient_words = topics_words.idxmax(axis=1)
+    topic_vis["Salient Word"] = salient_words.values
+
     kelly_colors = [(255, 179, 0),
                     (128, 62, 117),
                     (255, 104, 0),
@@ -150,7 +159,7 @@ def postprocess_data():
                     (241, 58, 19),
                     (35, 44, 22)
                     ]
-    return kelly_colors, document_projections, it, iw, flat_data, document_topics
+    return kelly_colors, document_projections, it, iw, flat_data, document_topics, topic_vis
 
 
 if __name__ == "__main__":
