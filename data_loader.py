@@ -159,6 +159,9 @@ def postprocess_data():
                     (241, 58, 19),
                     (35, 44, 22)
                     ]
+    topics_weight = document_topics.transpose().sum(axis=1)
+    topics_weight /= topics_weight.sum()
+    topic_vis["overall weight"] = topics_weight
     return kelly_colors, document_projections, it, iw, flat_data, document_topics, topic_vis
 
 

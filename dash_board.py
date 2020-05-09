@@ -1,6 +1,7 @@
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
+import pandas as pd
 import plotly.graph_objs as go
 
 from data_loader import postprocess_data
@@ -74,7 +75,7 @@ def produce_scatter_projection(axis1, axis2):
             'closest': "closest",
             "height": "750",
             "width@": "100%",
-            'title': f"Projection on topics {1}, {2}",
+            'title': f"Projection on PCs {axis1}, {axis2}",
         }
     }
     return f
@@ -92,7 +93,7 @@ def update_topics(value):
         'data': [go.Bar(x=fl["weight"].values.tolist(),
                         y=[f"{it_[i]} : {iw_[i]}" for i in range(len(iw_))],
                         marker_color=["rgb" + str(kelly_colors[x]) for ix, x in enumerate(iw_)],
-                        hovertext=[f"Topic Id {x}" for x in it_],
+                        hovertext=[f"Topic Id {iw_[i]} | {it_[i]}" for i in range(len(iw_))],
                         orientation='h')],
         'layout': {
             'title': 'Topic Distribution Visualisation',
@@ -115,10 +116,46 @@ def display_click_data(clickData):
     # Topics distr
     _pd_index = clickData["points"][0]["pointIndex"]
     _dt_pd_distr = document_topics.iloc[_pd_index, :].values
-    _dt_pd_distr = [[f"Topic {ix} : Weight {x} ", html.Br()] for ix, x in enumerate(_dt_pd_distr)]
+    _dt_pd_distr = [[f"Topic {ix}", x] for ix, x in enumerate(_dt_pd_distr)]
+    _dt_pd_distr = pd.DataFrame(_dt_pd_distr, columns=["TID", "Weight"])
 
-    _dt_pd_distr = [y for x in _dt_pd_distr for y in x]
-    return [html.Div(_dt_pd_distr), html.Br(), html.Br(), html.Br(), html.H3("The full document content"),
+    important_topics = _dt_pd_distr.sort_values(by="Weight", axis=0, ascending=False).head(2).TID.apply(
+        lambda x: int(x[len("Topic "):])).values
+    important_topics_weights = _dt_pd_distr.Weight.values[important_topics] / _dt_pd_distr.Weight.values[
+        important_topics].sum()
+
+    distr_chart = dcc.Graph(id='PerDocDistrChart',
+                            figure={'data': [
+                                {'x': _dt_pd_distr["TID"].values,
+                                 'y': _dt_pd_distr.Weight.values,
+                                 'type': 'bar', 'name': 'Topic Distribution'}],
+                                'layout': {
+                                    'title': 'Topic Distribution for document {}'.format(str(_document_db_id))
+                                }
+                            }
+                            )
+    fl = flat_data.copy().iloc[flat_data.index.get_level_values("TopicID").isin(important_topics), :]
+    fl.iloc[fl.index.get_level_values("TopicID") == important_topics[0], :] *= important_topics_weights[0]
+    fl.iloc[fl.index.get_level_values("TopicID") == important_topics[1], :] *= important_topics_weights[1]
+    iw_ = fl.index.get_level_values("TopicID")
+    it_ = fl.index.get_level_values("Word").values.tolist()
+
+    f = {
+        'data': [go.Bar(y=fl["weight"].values.tolist(),
+                        x=[f"{it_[i]} : {iw_[i]}" for i in range(len(iw_))],
+                        marker_color=["rgb" + str(kelly_colors[x]) for ix, x in enumerate(iw_)],
+                        hovertext=[f"Topic Id {iw_[i]} | {it_[i]}" for i in range(len(iw_))],
+                        orientation='v')],
+        'layout': {
+            'title': f'Word Distribution document {_document_db_id} | Top 2 topics scaled by topic weight',
+            "width@": "100%"
+        }}
+    word_distr_chart = dcc.Graph(id='PerDocDistrChart',
+                                 figure=f)
+
+    print(important_topics)
+    return [html.Div(children=[distr_chart]), word_distr_chart, html.Br(), html.Br(), html.Br(),
+            html.H3("The full document content"),
             html.Span(_document_db_id)]
 
 
@@ -133,6 +170,35 @@ All_topics = dcc.Graph(
 document_projection_plot = dcc.Graph(
     id='topic_projection',
 )
+
+topic_viz_plot = dcc.Graph(id="TopicSizeRel", figure={
+    'data': [
+        {
+            'x': topics_vis["pc1"].values,
+            'y': topics_vis["pc2"].values,
+            "text": [
+                f"{topics_vis['Salient Word'].values[ix][0]}"
+                for ix in range(len(topics_vis["Salient Word"].values))],
+            'mode': 'markers+text',
+            'size': topics_vis["overall weight"].values,
+            'marker': {'size': topics_vis["overall weight"].values * 1,
+                       'sizemode': 'area',
+                       'sizeref': 2. * max(topics_vis["overall weight"].values) / (40. ** 2),
+                       'sizemin': 4
+                       },
+            "textposition": "bottom center"
+        }
+    ],
+    'layout': {
+        'clickmode': 'event+select',
+        'closest': "closest",
+        'closest': "closest",
+        "height": "750",
+        "width@": "100%",
+        'title': f"Projection on PCs",
+    }
+}
+                           )
 
 
 def update_point(trace, points, selector):
@@ -202,7 +268,7 @@ app.layout = html.Div(children=[
              style={"width": "100%", 'display': 'inline-block',
                     "margin": "auto", "overflow": "auto",
                     "backgroundColor": colors["background"], "padding": "0"},
-             children=["Bugabuga"])
+             children=[topic_viz_plot])
 ],
     style={'backgroundColor': colors['background'], "height": "800px"}
 )
