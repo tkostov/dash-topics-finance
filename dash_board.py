@@ -1,10 +1,38 @@
+import bs4 as bs
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import pandas as pd
 import plotly.graph_objs as go
 
-from data_loader import postprocess_data
+from data_loader import postprocess_data, get_document_text
+
+
+# Def parser
+def convert_html_to_dash(el, style=None):
+    CST_PERMITIDOS = {'div', 'span', 'a', 'hr', 'br', 'p', 'b', 'i', 'u', 's', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ol',
+                      'ul', 'li',
+                      'em', 'strong', 'cite', 'tt', 'pre', 'small', 'big', 'center', 'blockquote', 'address', 'font',
+                      'img',
+                      'table', 'tr', 'td', 'caption', 'th', 'textarea', 'option'}
+
+    def __extract_style(el):
+        if not el.attrs.get("style"):
+            return None
+        return {k.strip(): v.strip() for k, v in [x.split(": ") for x in el.attrs["style"].split(";")]}
+
+    if type(el) is str:
+        return convert_html_to_dash(bs.BeautifulSoup(el, 'html.parser'))
+    if type(el) == bs.element.NavigableString:
+        return str(el)
+    else:
+        name = el.name
+        style = __extract_style(el) if style is None else style
+        contents = [convert_html_to_dash(x) for x in el.contents]
+        if name.title().lower() not in CST_PERMITIDOS:
+            return contents[0] if len(contents) == 1 else html.Div(contents)
+        return getattr(html, name.title())(contents, style=style)
+
 
 # Start styles #####################################################################
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -152,11 +180,12 @@ def display_click_data(clickData):
         }}
     word_distr_chart = dcc.Graph(id='PerDocDistrChart',
                                  figure=f)
-
+    doc_text = get_document_text(_document_db_id).replace("\n", "<br>")
     print(important_topics)
     return [html.Div(children=[distr_chart]), word_distr_chart, html.Br(), html.Br(), html.Br(),
             html.H3("The full document content"),
-            html.Span(_document_db_id)]
+            # TODO here
+            html.Span(convert_html_to_dash(doc_text))]
 
 
 #### End of Callbacks ###############################################################################
@@ -191,7 +220,6 @@ topic_viz_plot = dcc.Graph(id="TopicSizeRel", figure={
     ],
     'layout': {
         'clickmode': 'event+select',
-        'closest': "closest",
         'closest': "closest",
         "height": "750",
         "width@": "100%",

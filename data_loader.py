@@ -4,6 +4,24 @@ import pandas as pd
 from cassandra.cluster import Cluster
 from sklearn.decomposition import PCA
 
+cassandra_adress = ["node-1-server.cassandra.mesos", "node-2-server.cassandra.mesos"]
+
+
+def get_document_text(id_):
+    """
+    Get raw data text from DB
+    :param id_: id of the document
+    :return: text of the document
+    """
+    cluster = Cluster(cassandra_adress)  # TODO ADD location
+    # select cluster name
+    session = cluster.connect("seminar")
+    session.execute("USE seminar")  # Keyspace
+    rows = session.execute(f'SELECT id, content FROM content_original where id = {id_}')  # Do select
+    for result_row_ in rows:
+        result_row = result_row_  # only one, load it and forget
+        return result_row[1]
+
 
 def get_json_data():
     """
@@ -65,8 +83,7 @@ def get_db_data():
     :return:
     """
     # TODO change the cluster Location when deploy
-    cluster = Cluster()  # TODO ADD location
-
+    cluster = Cluster(cassandra_adress)  # TODO ADD location
     # select cluster name
     session = cluster.connect("seminar")
     session.execute("USE seminar")  # Keyspace
@@ -78,7 +95,8 @@ def get_db_data():
 
 
 def prep_data_viz():
-    all_topics, document_topics = preprocess_data(db=False)
+    # DB is set here TODO move to a config file
+    all_topics, document_topics = preprocess_data(db=True)
     document_topics = pd.DataFrame(document_topics).transpose()
     all_topics = pd.DataFrame.from_dict(all_topics)
     n_topics = len(all_topics.columns)
